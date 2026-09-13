@@ -385,6 +385,11 @@ set_color(int *color, const char *name)
 {
 	if (map_enum(color, color_map, name))
 		return true;
+	if (name[0] == '#' && strlen(name) == 7 &&
+	    strspn(name + 1, "0123456789abcdefABCDEF") == 6) {
+		*color = COLOR_RGB_FLAG | (int) strtol(name + 1, NULL, 16);
+		return true;
+	}
 	/* Git expects a plain int w/o prefix, however, color<int> is
 	 * the preferred Tig color notation.  */
 	if (!prefixcmp(name, "color"))
@@ -1070,6 +1075,24 @@ struct config_state {
 	bool errors;
 };
 
+/* Find the start of a comment, skipping #rrggbb colors. */
+static size_t
+comment_start(const char *value)
+{
+	size_t len = 0;
+
+	while (value[len += strcspn(value + len, "#")]) {
+		const char *hash = value + len;
+
+		if (strspn(hash + 1, "0123456789abcdefABCDEF") != 6 ||
+		    (hash[7] && !isspace((unsigned char) hash[7])))
+			break;
+		len += 7;
+	}
+
+	return len;
+}
+
 static enum status_code
 read_option(char *opt, size_t optlen, char *value, size_t valuelen, void *data)
 {
@@ -1084,7 +1107,7 @@ read_option(char *opt, size_t optlen, char *value, size_t valuelen, void *data)
 
 	if (opt[optlen] == 0) {
 		/* Look for comment endings in the value. */
-		size_t len = strcspn(value, "#");
+		size_t len = comment_start(value);
 		const char *argv[SIZEOF_ARG];
 		int argc = 0;
 
@@ -1367,6 +1390,9 @@ save_option_color_name(FILE *file, int color)
 	for (i = 0; i < ARRAY_SIZE(color_map); i++)
 		if (color_map[i].value == color)
 			return io_fprintf(file, " %-8s", enum_name(color_map[i].name));
+
+	if (COLOR_IS_RGB(color))
+		return io_fprintf(file, " #%06x ", color & ~COLOR_RGB_FLAG);
 
 	return io_fprintf(file, " color%d", color);
 }

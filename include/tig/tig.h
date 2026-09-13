@@ -155,6 +155,9 @@
 
 /* This color name can be used to refer to the default term colors. */
 #define COLOR_DEFAULT	(-1)
+/* A #rrggbb color, mapped to a palette color when colors are initialized. */
+#define COLOR_RGB_FLAG	0x1000000
+#define COLOR_IS_RGB(color)	((color) >= 0 && ((color) & COLOR_RGB_FLAG))
 
 #define ICONV_NONE	((iconv_t) -1)
 #ifndef ICONV_CONST

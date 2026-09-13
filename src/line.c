@@ -217,6 +217,88 @@ init_line_info_color_pair(struct line_info *info, enum line_type type,
 	init_pair(COLOR_ID(info->color_pair), fg, bg);
 }
 
+/* Find the nearest color in the 6x6x6 color cube or the grayscale ramp. */
+static int
+rgb_to_256(int rgb)
+{
+	static const int levels[] = { 0, 95, 135, 175, 215, 255 };
+	int r = (rgb >> 16) & 0xff, g = (rgb >> 8) & 0xff, b = rgb & 0xff;
+	int best = 16, best_dist = -1;
+	int i;
+
+	for (i = 16; i < 256; i++) {
+		int cr, cg, cb, dist;
+
+		if (i < 232) {
+			cr = levels[(i - 16) / 36];
+			cg = levels[(i - 16) / 6 % 6];
+			cb = levels[(i - 16) % 6];
+		} else {
+			cr = cg = cb = 8 + (i - 232) * 10;
+		}
+
+		dist = (r - cr) * (r - cr) + (g - cg) * (g - cg) + (b - cb) * (b - cb);
+		if (best_dist < 0 || dist < best_dist) {
+			best = i;
+			best_dist = dist;
+		}
+	}
+
+	return best;
+}
+
+static bool
+color_is_used(int color)
+{
+	enum line_type type;
+
+	for (type = 0; type < line_rules; type++) {
+		struct line_info *info;
+
+		for (info = &line_rule[type].info; info; info = info->next)
+			if (info->fg == color || info->bg == color)
+				return true;
+	}
+
+	return false;
+}
+
+/* Replace #rrggbb colors with redefined palette colors, or the nearest one. */
+static void
+init_rgb_color(int *color, int *next_slot)
+{
+	struct { int rgb, slot; } static seen[256];
+	static int seen_count;
+	int rgb = *color & ~COLOR_RGB_FLAG;
+	int i;
+
+	for (i = 0; i < seen_count; i++) {
+		if (seen[i].rgb == rgb) {
+			*color = seen[i].slot;
+			return;
+		}
+	}
+
+	if (!can_change_color() || COLORS < 256 || seen_count >= ARRAY_SIZE(seen)) {
+		*color = rgb_to_256(rgb);
+		return;
+	}
+
+	/* Take the least used palette colors, from the end of the color cube. */
+	while (*next_slot >= 16 && color_is_used(*next_slot))
+		(*next_slot)--;
+	if (*next_slot < 16) {
+		*color = rgb_to_256(rgb);
+		return;
+	}
+
+	init_color(*next_slot, ((rgb >> 16) & 0xff) * 1000 / 255,
+		   ((rgb >> 8) & 0xff) * 1000 / 255, (rgb & 0xff) * 1000 / 255);
+	seen[seen_count].rgb = rgb;
+	seen[seen_count++].slot = *next_slot;
+	*color = (*next_slot)--;
+}
+
 void
 init_colors(void)
 {
@@ -225,6 +307,7 @@ init_colors(void)
 	struct line_rule *rule = find_line_rule(&query);
 	int default_bg = rule ? rule->info.bg : COLOR_BLACK;
 	int default_fg = rule ? rule->info.fg : COLOR_WHITE;
+	int next_slot = 231;
 	enum line_type type;
 
 	/* XXX: Even if the terminal does not support colors (e.g.
@@ -235,6 +318,22 @@ init_colors(void)
 		return;
 
 	start_color();
+
+	for (type = 0; type < line_rules; type++) {
+		struct line_info *info;
+
+		for (info = &line_rule[type].info; info; info = info->next) {
+			if (COLOR_IS_RGB(info->fg))
+				init_rgb_color(&info->fg, &next_slot);
+			if (COLOR_IS_RGB(info->bg))
+				init_rgb_color(&info->bg, &next_slot);
+		}
+	}
+
+	if (rule) {
+		default_bg = rule->info.bg;
+		default_fg = rule->info.fg;
+	}
 
 	if (assume_default_colors(default_fg, default_bg) == ERR) {
 		default_bg = COLOR_BLACK;

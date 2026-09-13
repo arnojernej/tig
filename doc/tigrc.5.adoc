@@ -1052,6 +1052,9 @@ Color names::
 +
 Colors can also be specified using the keywords *color0*, *color1*, ...,
 *colorN-1* (where *N* is the number of colors supported by your terminal).
+Colors can also be given as *#rrggbb*. When the terminal supports changing
+its palette, unused palette entries are redefined to the exact colors,
+otherwise the nearest color of the 256 color palette is used.
 This is useful when you remap the colors for your display or want to enable
 colors supported by 88-color and 256-color terminals. Note that the 'color'
 prefix is optional. If you prefer, you can specify colors directly by their
