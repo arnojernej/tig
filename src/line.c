@@ -226,7 +226,11 @@ rgb_to_256(int rgb)
 	int best = 16, best_dist = -1;
 	int i;
 
-	for (i = 16; i < 256; i++) {
+	/* Colored input should not end up as gray, so skip the grayscale ramp. */
+	int max = MAX(r, MAX(g, b)), min = MIN(r, MIN(g, b));
+	int last = max - min > 16 ? 232 : 256;
+
+	for (i = 16; i < last; i++) {
 		int cr, cg, cb, dist;
 
 		if (i < 232) {
