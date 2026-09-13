@@ -1,0 +1,32 @@
+# Claude Code style diffs.
+#
+# Needs a tig build with the diff-gutter, diff-fill and diff-compact-headers
+# options and #rrggbb color support. Use with: source contrib/claude-code.tigrc
+
+set diff-gutter          = yes
+set diff-fill            = yes
+set diff-compact-headers = yes
+set diff-highlight       = true   # highlight changed words (git's contrib/diff-highlight)
+
+color diff-add           default #0d3a0d   # dark green background
+color diff-del           default #4b0d0d   # dark red background
+color diff-add-gutter    #a8e6a3 #0d3a0d   # light green line numbers and + sign
+color diff-del-gutter    #ff8a8a #4b0d0d   # light red line numbers and - sign
+color diff-add-highlight default #2f7d3c   # changed words
+color diff-del-highlight default #8f2a2a
+color line-number        244     default   # gray context line numbers
+color diff-header        default default   # file headers
+
+# Gray commit header (commit, Refs, Author, dates, ...)
+color "commit "      244     default
+color "Refs: "       244     default
+color "Merge: "      244     default
+color "Author: "     244     default
+color "AuthorDate: " 244     default
+color "Commit: "     244     default
+color "CommitDate: " 244     default
+color "Date: "       244     default
+color "Tagger: "     244     default
+color "TaggerDate: " 244     default
+
+# For vim-style G/gg jumps, also source contrib/vim.tigrc.
