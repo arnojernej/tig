@@ -17,7 +17,11 @@ About this fork
 ---------------
 This fork adds a diff view styled after Claude Code: file line numbers,
 full-width colored lines, compact file headers with git status letters
-and `#rrggbb` colors. Enable it with:
+and `#rrggbb` colors.
+
+image:doc/screenshots/claude-code-diff.png[Claude Code style diff view]
+
+Enable it with:
 
 -----------------------------------------------------------------------------
 source contrib/claude-code.tigrc
