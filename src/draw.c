@@ -811,6 +811,12 @@ view_column_draw(struct view *view, struct line *line, unsigned int lineno)
 			    is_diff_change_type(line->type) &&
 			    draw_space(view, line->type, VIEW_MAX_LEN(view), VIEW_MAX_LEN(view)))
 				return true;
+
+			/* Colors are applied up to the end of the line, reset them so
+			 * backgrounds of e.g. diff stat bars do not fill the line. */
+			if (opt_diff_fill && view_has_flags(view, VIEW_DIFF_LIKE) &&
+			    !is_diff_change_type(line->type))
+				set_view_attr(view, LINE_DEFAULT);
 		}
 			continue;
 		}
