@@ -13,6 +13,20 @@ as a Git repository browser, but can also assist in staging changes for
 commit at chunk level and act as a pager for output from various Git
 commands.
 
+About this fork
+---------------
+This fork adds a diff view styled after Claude Code: file line numbers,
+full-width colored lines, compact file headers with git status letters
+and `#rrggbb` colors. Enable it with:
+
+-----------------------------------------------------------------------------
+source contrib/claude-code.tigrc
+-----------------------------------------------------------------------------
+
+See 'diff-gutter', 'diff-fill' and 'diff-compact-headers' in
+link:doc/tigrc.5.{docext}[tigrc(5)]. The upstream project is
+https://github.com/jonas/tig[jonas/tig].
+
 Resources
 ---------
 
