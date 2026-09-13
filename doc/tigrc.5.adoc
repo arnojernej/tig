@@ -298,6 +298,29 @@ The following variables can be set:
 
 	Show +/- signs in the diff view. On by default.
 
+'diff-gutter' (bool)::
+
+	Show the file line number in front of each diff line: the old number
+	for removed lines, the new number otherwise. Off by default.
+
+'diff-fill' (bool)::
+
+	Extend the colors of added and removed lines to the full view width.
+	Off by default.
+
+'diff-compact-headers' (bool)::
+
+	Show the header of each file in the diff view as a summary like
+	`M path with 1 addition and 1 removal` (or `A`, `D`, `R`), with the
+	path colored by `diff-header-path`,
+	hide the `index`, `---`, `+++` and file mode lines, surround file
+	blocks with empty lines, and show hunk headers as a `⋯` separator with
+	the function context. Diff stat lines are prefixed with a git status
+	letter (`M`, `A`, `D`, `R`) colored like the file headers with
+	`diff-header-modified`, `diff-header-created`, `diff-header-deleted`
+	and `diff-header-renamed`. The
+	stage view is not affected. Off by default.
+
 'ignore-space' (mixed) [no|all|some|at-eol|<bool>]::
 
 	Ignore space changes in diff view. By default no space changes are

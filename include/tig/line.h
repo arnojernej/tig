@@ -42,6 +42,13 @@ struct ref;
 	_(DIFF_NO_NEWLINE,	"\\ No newline at end of file"), \
 	_(DIFF_ADD_HIGHLIGHT,	""), \
 	_(DIFF_DEL_HIGHLIGHT,	""), \
+	_(DIFF_ADD_GUTTER,	""), \
+	_(DIFF_DEL_GUTTER,	""), \
+	_(DIFF_HEADER_CREATED,	""), \
+	_(DIFF_HEADER_MODIFIED,	""), \
+	_(DIFF_HEADER_DELETED,	""), \
+	_(DIFF_HEADER_RENAMED,	""), \
+	_(DIFF_HEADER_PATH,	""), \
 	_(PP_MERGE,		"Merge: "), \
 	_(PP_REFS,		"Refs: "), \
 	_(PP_REFLOG,		"Reflog: "), \

@@ -302,8 +302,59 @@ diff_common_highlight(struct view *view, const char *text, enum line_type type)
 	return diff_common_add_line(view, text, type, &context);
 }
 
+static bool
+diff_common_read_line(struct view *view, const char *data, struct diff_state *state);
+
+/* Record old/new file line numbers on lines inside diff chunks. */
+static void
+diff_common_set_lineno(struct view *view, size_t first, const char *data, struct diff_state *state)
+{
+	struct line *line = &view->line[first];
+	struct chunk_header header;
+
+	if (line->type == LINE_DIFF_CHUNK) {
+		if (!state->combined_diff && parse_chunk_header(&header, data)) {
+			state->old_lineno = header.old.position;
+			state->new_lineno = header.new.position;
+			state->numbering = true;
+		} else {
+			state->numbering = false;
+		}
+		return;
+	}
+
+	if (!state->reading_diff_chunk || !state->numbering || *data == '\\')
+		return;
+
+	switch (*data) {
+	case '-':
+		line->diff_old_lineno = state->old_lineno++;
+		break;
+	case '+':
+		line->diff_new_lineno = state->new_lineno++;
+		break;
+	case ' ':
+		line->diff_old_lineno = state->old_lineno++;
+		line->diff_new_lineno = state->new_lineno++;
+		break;
+	}
+}
+
 bool
 diff_common_read(struct view *view, const char *data, struct diff_state *state)
+{
+	size_t first = view->lines;
+
+	if (!diff_common_read_line(view, data, state))
+		return false;
+
+	if (view->lines > first)
+		diff_common_set_lineno(view, first, data, state);
+	return true;
+}
+
+static bool
+diff_common_read_line(struct view *view, const char *data, struct diff_state *state)
 {
 	enum line_type type = get_line_type(data);
 
@@ -318,6 +369,36 @@ diff_common_read(struct view *view, const char *data, struct diff_state *state)
 		else if (type == LINE_DIFF_ADD_FILE)
 			type = LINE_DIFF_ADD;
 	}
+
+	/* The diff header is drawn as a change summary, skip the noise. The
+	 * stage view needs these lines to build patches. */
+	if (opt_diff_compact_headers && !state->stage && state->after_diff &&
+	    !state->reading_diff_chunk) {
+		if (type == LINE_DIFF_NEWFMODE || type == LINE_DIFF_DELFMODE ||
+		    type == LINE_DIFF_RENAME_FROM) {
+			struct line *header = view->lines
+				? find_prev_line_by_type(view, &view->line[view->lines - 1], LINE_DIFF_HEADER)
+				: NULL;
+
+			if (header)
+				header->diff_file_status = type == LINE_DIFF_NEWFMODE ? DIFF_FILE_ADDED
+					: type == LINE_DIFF_DELFMODE ? DIFF_FILE_DELETED
+					: DIFF_FILE_RENAMED;
+			if (type != LINE_DIFF_RENAME_FROM)
+				return true;
+		}
+
+		if (type == LINE_DIFF_INDEX || type == LINE_DIFF_DEL_FILE || type == LINE_DIFF_ADD_FILE ||
+		    type == LINE_DIFF_SIMILARITY)
+			return true;
+	}
+
+	/* Separate file blocks with an empty line. */
+	if (opt_diff_compact_headers && !state->stage && view->lines &&
+	    (type == LINE_DIFF_HEADER || (type == LINE_COMMIT && state->after_diff)) &&
+	    *box_text(&view->line[view->lines - 1]) &&
+	    !add_line_text(view, "", LINE_DEFAULT))
+		return false;
 
 	if (!view->lines && type != LINE_COMMIT)
 		state->reading_diff_stat = true;
@@ -398,7 +479,7 @@ diff_find_stat_entry(struct view *view, struct line *line, enum line_type type)
 		line == find_prev_line_by_type(view, marker, LINE_DIFF_HEADER);
 }
 
-static struct line *
+struct line *
 diff_find_header_from_stat(struct view *view, struct line *line)
 {
 	if (line->type == LINE_DIFF_STAT) {
@@ -414,7 +495,8 @@ diff_find_header_from_stat(struct view *view, struct line *line)
 			if (!line)
 				break;
 
-			if (diff_find_stat_entry(view, line, LINE_DIFF_INDEX)
+			if (opt_diff_compact_headers
+			    || diff_find_stat_entry(view, line, LINE_DIFF_INDEX)
 			    || diff_find_stat_entry(view, line, LINE_DIFF_OLDMODE)
 			    || diff_find_stat_entry(view, line, LINE_DIFF_SIMILARITY)) {
 				if (file_number == 1) {
@@ -534,6 +616,20 @@ diff_read(struct view *view, struct buffer *buf, bool force_stop)
 				report("Failed to run the diff-highlight program: %s", opt_diff_highlight);
 			return false;
 		}
+
+		/* Stat lines were drawn before their file status was known. */
+		if (opt_diff_compact_headers) {
+			size_t i;
+
+			for (i = 0; i < view->lines; i++)
+				if (view->line[i].type == LINE_DIFF_STAT)
+					view->line[i].dirty = 1;
+		}
+
+		/* Close the last file block with an empty line. */
+		if (opt_diff_compact_headers && state->after_diff && view->lines &&
+		    *box_text(&view->line[view->lines - 1]))
+			add_line_text(view, "", LINE_DEFAULT);
 
 		/* Fall back to retry if no diff will be shown. */
 		if (view->lines == 0 && opt_file_args) {
@@ -772,7 +868,46 @@ diff_get_pathname(struct view *view, struct line *line, bool old)
 		return name;
 	}
 
-	return NULL;
+	return diff_header_pathname(box_text(header));
+}
+
+/*
+ * Get the path from a "diff --git a/path b/path" header. Only works when both
+ * paths are the same, renames have their own "rename from/to" lines.
+ */
+const char *
+diff_header_pathname(const char *header)
+{
+	/* Rotate buffers so the old and new path can be held at the same time. */
+	static char paths[2][SIZEOF_STR];
+	static int current;
+	char *path = paths[current = !current];
+	const char *names;
+	size_t len, half;
+
+	if (prefixcmp(header, "diff --git "))
+		return NULL;
+
+	names = header + STRING_SIZE("diff --git ");
+	len = strlen(names);
+	if (len < 3 || len % 2 == 0)
+		return NULL;
+
+	half = len / 2;
+	if (names[half] != ' ')
+		return NULL;
+
+	if (!opt_diff_noprefix && half > 2 && names[1] == '/' && names[half + 2] == '/') {
+		if (strncmp(names + 2, names + half + 3, half - 2))
+			return NULL;
+		string_ncopy_do(path, SIZEOF_STR, names + 2, half - 2);
+		return path;
+	}
+
+	if (strncmp(names, names + half + 1, half))
+		return NULL;
+	string_ncopy_do(path, SIZEOF_STR, names, half);
+	return path;
 }
 
 enum request

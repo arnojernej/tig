@@ -50,6 +50,11 @@ struct line {
 	unsigned int graph_indent:1;
 	unsigned int search_result:1;
 
+	/* Old/new file line numbers of diff lines (0 = none). */
+	unsigned int diff_old_lineno;
+	unsigned int diff_new_lineno;
+	unsigned int diff_file_status:2;	/* DIFF_FILE_* of a diff header. */
+
 	void *data;		/* User data */
 };
 

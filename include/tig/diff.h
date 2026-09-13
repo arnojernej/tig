@@ -16,6 +16,13 @@
 
 #include "tig/view.h"
 
+enum diff_file_status {
+	DIFF_FILE_MODIFIED,
+	DIFF_FILE_ADDED,
+	DIFF_FILE_DELETED,
+	DIFF_FILE_RENAMED,
+};
+
 struct diff_state {
 	bool after_commit_title;
 	bool after_diff;
@@ -25,7 +32,10 @@ struct diff_state {
 	bool adding_describe_ref;
 	bool highlight;
 	bool stage;
+	bool numbering;
 	unsigned int parents;
+	unsigned int old_lineno;
+	unsigned int new_lineno;
 	const char *file;
 	unsigned int lineno;
 	struct position pos;
@@ -44,6 +54,8 @@ bool diff_done_highlight(struct diff_state *state);
 
 unsigned int diff_get_lineno(struct view *view, struct line *line, bool old);
 const char *diff_get_pathname(struct view *view, struct line *line, bool old);
+const char *diff_header_pathname(const char *header);
+struct line *diff_find_header_from_stat(struct view *view, struct line *line);
 
 extern struct view diff_view;
 

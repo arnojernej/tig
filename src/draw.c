@@ -16,6 +16,8 @@
 #include "tig/draw.h"
 #include "tig/options.h"
 #include "tig/display.h"
+#include "tig/diff.h"
+#include "tig/stage.h"
 #include "compat/hashtab.h"
 
 static const enum line_type palette_colors[] = {
@@ -479,6 +481,176 @@ draw_commit_title(struct view *view, struct view_column *column, enum line_type 
 			column->opt.commit_title.overflow, 0);
 }
 
+static inline bool
+is_diff_change_type(enum line_type type)
+{
+	return type == LINE_DIFF_ADD || type == LINE_DIFF_DEL ||
+	       type == LINE_DIFF_ADD2 || type == LINE_DIFF_DEL2;
+}
+
+/* Added and removed lines have their own gutter colors, others are dimmed. */
+static enum line_type
+diff_gutter_type(enum line_type type)
+{
+	if (type == LINE_DIFF_ADD || type == LINE_DIFF_ADD2)
+		return LINE_DIFF_ADD_GUTTER;
+	if (type == LINE_DIFF_DEL || type == LINE_DIFF_DEL2)
+		return LINE_DIFF_DEL_GUTTER;
+	return LINE_LINE_NUMBER;
+}
+
+static bool draw_chars_attr(struct view *view, enum line_type type, const char *text, int attr);
+#define draw_chars_dim(view, type, text) draw_chars_attr(view, type, text, A_DIM)
+
+/* Draw the file line number in front of a diff line, colored like the line. */
+static bool
+draw_diff_gutter(struct view *view, struct line *line)
+{
+	unsigned int lineno = line->diff_new_lineno ? line->diff_new_lineno : line->diff_old_lineno;
+	enum line_type type = diff_gutter_type(line->type);
+	char text[16];
+
+	if (!lineno) {
+		if (!line->wrapped)
+			return false;
+		return draw_space(view, type, VIEW_MAX_LEN(view), 6);
+	}
+
+	if (line->type == LINE_DIFF_DEL || line->type == LINE_DIFF_DEL2)
+		lineno = line->diff_old_lineno;
+
+	snprintf(text, sizeof(text), "%5u ", lineno);
+	if (type == LINE_LINE_NUMBER)
+		return draw_chars_dim(view, type, text);
+	return draw_chars(view, type, text, -1, VIEW_MAX_LEN(view), false);
+}
+
+/* Draw text with the colors of the line type and extra attributes. */
+static bool
+draw_chars_attr(struct view *view, enum line_type type, const char *text, int attr)
+{
+	int y = getcury(view->win);
+	int x = getcurx(view->win);
+	int col = view->col;
+	bool done = draw_chars(view, type, text, -1, VIEW_MAX_LEN(view), false);
+
+	if (!view->curline->selected && view->col > col) {
+		mvwchgat(view->win, y, x, view->col - col,
+			 get_view_attr(view, type) | attr, get_view_color(view, type), NULL);
+		wmove(view->win, y, x + view->col - col);
+	}
+
+	return done;
+}
+
+/* Draw diff headers as a change summary and hunk headers as a separator. */
+static bool
+draw_diff_compact_header(struct view *view, struct line *line, const char *text, bool *drawn)
+{
+	/* Prefix diff stat lines with a git status like letter. */
+	if (line->type == LINE_DIFF_STAT) {
+		static const char letters[] = "MADR";
+		static const enum line_type types[] = {
+			LINE_DIFF_HEADER_MODIFIED, LINE_DIFF_HEADER_CREATED,
+			LINE_DIFF_HEADER_DELETED, LINE_DIFF_HEADER_RENAMED,
+		};
+		struct line *header = diff_find_header_from_stat(view, line);
+		char letter[3] = " ?";
+
+		*drawn = false;
+		if (!header || !view_has_line(view, header) || header->type != LINE_DIFF_HEADER)
+			return draw_text(view, LINE_DEFAULT, "  ");
+		letter[1] = letters[header->diff_file_status];
+		return draw_chars_attr(view, types[header->diff_file_status], letter, A_BOLD);
+	}
+
+	/* Align the "N files changed" line with the stat lines. */
+	if (line->type == LINE_DEFAULT && view_has_line(view, line - 1) &&
+	    line[-1].type == LINE_DIFF_STAT && *text) {
+		*drawn = false;
+		return draw_text(view, LINE_DEFAULT, "  ");
+	}
+
+	*drawn = true;
+
+	if (line->type == LINE_DIFF_HEADER) {
+		static const char *verbs[] = { " M", " A", " D" };
+		static const enum line_type verb_types[] = {
+			LINE_DIFF_HEADER_MODIFIED, LINE_DIFF_HEADER_CREATED, LINE_DIFF_HEADER_DELETED,
+		};
+		const char *path = diff_header_pathname(text);
+		const char *rename_from = NULL, *rename_to = NULL;
+		unsigned int additions = 0, removals = 0;
+		struct line *next;
+		char summary[64] = "";
+
+		for (next = line + 1; view_has_line(view, next); next++) {
+			if (next->type == LINE_DIFF_HEADER || next->type == LINE_COMMIT)
+				break;
+			if (next->type == LINE_DIFF_ADD || next->type == LINE_DIFF_ADD2)
+				additions++;
+			else if (next->type == LINE_DIFF_DEL || next->type == LINE_DIFF_DEL2)
+				removals++;
+			else if (next->type == LINE_DIFF_RENAME_FROM)
+				rename_from = box_text(next) + STRING_SIZE("rename from ");
+			else if (next->type == LINE_DIFF_RENAME_TO)
+				rename_to = box_text(next) + STRING_SIZE("rename to ");
+		}
+
+		if (rename_from && rename_to) {
+			if (draw_chars_attr(view, LINE_DIFF_HEADER_RENAMED, " R", A_BOLD) ||
+			    draw_text(view, LINE_DEFAULT, " ") ||
+			    draw_chars_attr(view, LINE_DIFF_HEADER_PATH, rename_from, A_BOLD) ||
+			    draw_text(view, LINE_DEFAULT, " → ") ||
+			    draw_chars_attr(view, LINE_DIFF_HEADER_PATH, rename_to, A_BOLD))
+				return true;
+		} else if (!path) {
+			return draw_text(view, line->type, text);
+		} else if (draw_chars_attr(view, verb_types[line->diff_file_status],
+					   verbs[line->diff_file_status], A_BOLD) ||
+			   draw_text(view, LINE_DEFAULT, " ") ||
+			   draw_chars_attr(view, LINE_DIFF_HEADER_PATH, path, A_BOLD)) {
+			return true;
+		}
+
+		if (!additions && !removals)
+			return false;
+
+		if (draw_text(view, LINE_DEFAULT, " with "))
+			return true;
+		if (additions) {
+			snprintf(summary, sizeof(summary), "%u", additions);
+			if (draw_chars_attr(view, LINE_DEFAULT, summary, A_BOLD) ||
+			    draw_text(view, LINE_DEFAULT, additions == 1 ? " addition" : " additions"))
+				return true;
+		}
+		if (additions && removals && draw_text(view, LINE_DEFAULT, " and "))
+			return true;
+		if (removals) {
+			snprintf(summary, sizeof(summary), "%u", removals);
+			if (draw_chars_attr(view, LINE_DEFAULT, summary, A_BOLD) ||
+			    draw_text(view, LINE_DEFAULT, removals == 1 ? " removal" : " removals"))
+				return true;
+		}
+		return false;
+	}
+
+	if (line->type == LINE_DIFF_CHUNK) {
+		/* Skip "@@ -a,b +c,d @@" and keep the function context. */
+		const char *context = strstr(text + 2, "@@");
+
+		context = context ? context + 2 : "";
+		while (*context == '@')
+			context++;
+		if (draw_chars_dim(view, LINE_DIFF_CHUNK, opt_diff_gutter ? "    ⋯ " : "⋯"))
+			return true;
+		return draw_text(view, LINE_DIFF_CHUNK, context);
+	}
+
+	*drawn = false;
+	return false;
+}
+
 bool
 view_column_draw(struct view *view, struct line *line, unsigned int lineno)
 {
@@ -569,8 +741,33 @@ view_column_draw(struct view *view, struct line *line, unsigned int lineno)
 			const char *text = column_data.text;
 			size_t indent = 0;
 
+			if (opt_diff_gutter && view_has_flags(view, VIEW_DIFF_LIKE) &&
+			    draw_diff_gutter(view, line))
+				return true;
+
+			if (opt_diff_compact_headers && view_has_flags(view, VIEW_DIFF_LIKE) &&
+			    view != &stage_view) {
+				bool drawn;
+
+				if (draw_diff_compact_header(view, line, text, &drawn) || drawn)
+					return true;
+			}
+
 			if (line->wrapped && draw_text(view, LINE_DELIMITER, "+"))
 				return true;
+
+			/* Draw the +/- signs in the gutter colors. */
+			if (opt_diff_gutter && opt_diff_indicator && !line->wrapped &&
+			    view_has_flags(view, VIEW_DIFF_LIKE) && is_diff_change_type(type) &&
+			    (*text == '+' || *text == '-' || *text == ' ')) {
+				size_t markers = strspn(text, "+- ");
+
+				markers = MIN(markers, type == LINE_DIFF_ADD2 || type == LINE_DIFF_DEL2 ? 2 : 1);
+				if (draw_chars(view, diff_gutter_type(type), text, markers, VIEW_MAX_LEN(view), false))
+					return true;
+				text += markers;
+				indent = markers;
+			}
 
 			if (line->graph_indent) {
 				indent = get_graph_indent(text);
@@ -609,6 +806,11 @@ view_column_draw(struct view *view, struct line *line, unsigned int lineno)
 			} else if (draw_text(view, type, text)) {
 				return true;
 			}
+
+			if (opt_diff_fill && view_has_flags(view, VIEW_DIFF_LIKE) &&
+			    is_diff_change_type(line->type) &&
+			    draw_space(view, line->type, VIEW_MAX_LEN(view), VIEW_MAX_LEN(view)))
+				return true;
 		}
 			continue;
 		}

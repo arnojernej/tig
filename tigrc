@@ -125,6 +125,9 @@ set show-notes			= yes		# When non-bool passed as `--show-notes=...` (diff)
 #set diff-highlight		= yes		# String (or bool): Path to diff-highlight script,
 						#                   defaults to `diff-highlight`.
 set diff-indicator		= yes		# Show diff +/- signs?
+set diff-gutter			= no		# Show file line numbers in front of diff lines?
+set diff-fill			= no		# Extend diff add/del colors to the full line width?
+set diff-compact-headers	= no		# Show only file names and hunk separators as diff headers?
 #set blame-options		= -C -C -C	# User-defined options for `tig blame` (git-blame)
 set log-options			= --cc --stat	# User-defined options for `tig log` (git-log)
 #set main-options		= -n 1000	# User-defined options for `tig` (git-log)
@@ -459,6 +462,13 @@ color help-action		yellow	default
 color diff-stat			blue	default
 color diff-add-highlight	green	default	standout
 color diff-del-highlight	red	default	standout
+color diff-add-gutter		green	default
+color diff-del-gutter		red	default
+color diff-header-created	green	default
+color diff-header-modified	yellow	default
+color diff-header-deleted	red	default
+color diff-header-renamed	magenta	default
+color diff-header-path		blue	default
 color palette-0			magenta	default
 color palette-1			yellow	default
 color palette-2			cyan	default
