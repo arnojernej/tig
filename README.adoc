@@ -27,7 +27,19 @@ Enable it with:
 source contrib/claude-code.tigrc
 -----------------------------------------------------------------------------
 
-See 'diff-gutter', 'diff-fill' and 'diff-compact-headers' in
+The config also turns on 'diff-highlight', which pipes diffs through
+git's `diff-highlight` script to mark changed words. If the script is
+not on your `PATH`, the diff view stays empty and the status line
+reports "Failed to run the diff-highlight program". Install it from
+git's contrib directory, for example on Debian and Ubuntu:
+
+-----------------------------------------------------------------------------
+install -m 755 /usr/share/doc/git/contrib/diff-highlight/diff-highlight ~/.local/bin/
+-----------------------------------------------------------------------------
+
+Or disable it with `set diff-highlight = false` after the source line.
+
+See 'diff-gutter', 'diff-fill', 'diff-compact-headers' and 'diff-highlight' in
 link:doc/tigrc.5.{docext}[tigrc(5)]. The upstream project is
 https://github.com/jonas/tig[jonas/tig].
 
