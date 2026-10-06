@@ -22,19 +22,28 @@
 #include "tig/draw.h"
 #include "tig/apps.h"
 
+/* File to jump to after the next load, which shows a merge against its first parent. */
+static const char *diff_first_parent_file;
+
 static enum status_code
 diff_open(struct view *view, enum open_flags flags)
 {
+	struct diff_state *state = view->private;
 	const char *diff_argv[] = {
 		"git", "show", encoding_arg, "--pretty=fuller", "--root",
 			"--patch-with-stat", use_mailmap_arg(),
 			show_notes_arg(), diff_context_arg(), ignore_space_arg(),
 			DIFF_ARGS, "%(cmdlineargs)", "--no-color", word_diff_arg(),
+			diff_first_parent_file ? "--diff-merges=first-parent" : "",
 			"%(commit)", "--", "%(fileargs)", NULL
 	};
 	enum status_code code;
 
-	diff_save_line(view, view->private, flags);
+	state->first_parent = !!diff_first_parent_file;
+	state->jump_file = diff_first_parent_file;
+	diff_first_parent_file = NULL;
+
+	diff_save_line(view, state, flags);
 
 	code = begin_update(view, NULL, diff_argv, flags | OPEN_WITH_STDERR);
 	if (code != SUCCESS)
@@ -512,9 +521,103 @@ diff_find_header_from_stat(struct view *view, struct line *line)
 	return NULL;
 }
 
+static struct line *
+diff_find_header_by_path(struct view *view, const char *path)
+{
+	struct line *line;
+
+	for (line = view->line; (line = find_next_line_by_type(view, line, LINE_DIFF_HEADER)); line++) {
+		const char *new_path = diff_get_pathname(view, line, false);
+		const char *old_path = diff_get_pathname(view, line, true);
+
+		if ((new_path && !strcmp(new_path, path)) ||
+		    (old_path && !strcmp(old_path, path)))
+			return line;
+	}
+
+	return NULL;
+}
+
+struct diff_stat_path {
+	int file_number;
+	char path[SIZEOF_STR];
+};
+
+static enum status_code
+read_diff_stat_path(char *name, size_t namelen, char *value, size_t valuelen, void *data)
+{
+	struct diff_stat_path *stat = data;
+
+	if (namelen && --stat->file_number == 0)
+		string_ncopy(stat->path, name, namelen);
+	return SUCCESS;
+}
+
+/*
+ * For merges, the stat compares against the first parent while the combined
+ * diff leaves out files matching one of the parents, so stat lines cannot be
+ * paired with diff headers by position. Ask git for the stat's file list.
+ */
+static const char *
+diff_merge_stat_path(struct view *view, struct line *line)
+{
+	const char *names_argv[] = {
+		"git", "show", encoding_arg, "--format=", "--name-only",
+			DIFF_ARGS, "--diff-merges=first-parent",
+			"%(commit)", "--", "%(fileargs)", NULL
+	};
+	struct diff_stat_path stat = { 0 };
+	const char **argv = NULL;
+	struct io io;
+	bool ok;
+
+	for (; view_has_line(view, line) && line->type == LINE_DIFF_STAT; line--)
+		stat.file_number++;
+
+	ok = argv_format(view->env, &argv, names_argv, argv_flag_file_filter) &&
+	     io_run_load(&io, argv, "\n", read_diff_stat_path, &stat) == SUCCESS &&
+	     !io.status;
+	argv_free(argv);
+	free(argv);
+
+	return ok && *stat.path ? get_path(stat.path) : NULL;
+}
+
+static enum request
+diff_merge_stat_enter(struct view *view, const char *path)
+{
+	struct diff_state *state = view->private;
+	struct line *header;
+
+	header = diff_find_header_by_path(view, path);
+	if (header) {
+		select_view_line(view, header - view->line);
+		report_clear();
+		return REQ_NONE;
+	}
+
+	if (state->first_parent) {
+		report("Failed to find file diff");
+		return REQ_NONE;
+	}
+
+	/* No combined diff for this file, show the merge against its first parent. */
+	diff_first_parent_file = path;
+	reload_view(view);
+	return REQ_NONE;
+}
+
 enum request
 diff_common_enter(struct view *view, enum request request, struct line *line)
 {
+	if (line->type == LINE_DIFF_STAT && view == &diff_view &&
+	    find_next_line_by_type(view, view->line, LINE_PP_MERGE)) {
+		const char *path = diff_merge_stat_path(view, line);
+
+		if (path)
+			return diff_merge_stat_enter(view, path);
+	}
+
 	if (line->type == LINE_DIFF_STAT) {
 		line = diff_find_header_from_stat(view, line);
 		if (!line) {
@@ -659,6 +762,15 @@ diff_read(struct view *view, struct buffer *buf, bool force_stop)
 		}
 
 		diff_restore_line(view, state);
+
+		if (state->jump_file) {
+			struct line *header = diff_find_header_by_path(view, state->jump_file);
+
+			if (header)
+				select_view_line(view, header - view->line);
+			report("No combined diff for %s, showing diff against first parent", state->jump_file);
+			state->jump_file = NULL;
+		}
 
 		if (!state->adding_describe_ref && !ref_list_contains_tag(view->vid)) {
 			const char *describe_argv[] = { "git", "describe", "--tags", view->vid, NULL };

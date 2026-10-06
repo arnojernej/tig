@@ -33,10 +33,12 @@ struct diff_state {
 	bool highlight;
 	bool stage;
 	bool numbering;
+	bool first_parent;
 	unsigned int parents;
 	unsigned int old_lineno;
 	unsigned int new_lineno;
 	const char *file;
+	const char *jump_file;
 	unsigned int lineno;
 	struct position pos;
 	struct io view_io;

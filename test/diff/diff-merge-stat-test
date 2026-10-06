@@ -1,0 +1,128 @@
+#!/bin/sh
+
+. libtest.sh
+. libgit.sh
+
+export LINES=18
+
+steps '
+	:12
+	:enter
+	:save-display combined-diff.screen
+	:11
+	:enter
+	:save-display first-parent-diff.screen
+	:12
+	:enter
+	:save-display first-parent-diff-other-file.screen
+	:refresh
+	:save-display refreshed.screen
+'
+
+git_init "$work_dir"
+
+test_setup_work_dir()
+{
+	printf 'a\n' > a.txt
+	printf 'b\n' > b.txt
+	printf 'c\n' > c.txt
+	git add .
+	git_commit --message="Initial commit"
+
+	git checkout -q -b side
+	printf 'b side\n' > b.txt
+	printf 'c side\n' > c.txt
+	git_commit --all --message="Side change"
+
+	git checkout -q master 2>/dev/null || git checkout -q main
+	printf 'a main\n' > a.txt
+	printf 'c main\n' > c.txt
+	git_commit --all --message="Main change"
+
+	git merge -q --no-commit side > /dev/null 2>&1 || true
+	printf 'c merged\n' > c.txt
+	git add c.txt
+	git_commit --no-edit --message="Merge side"
+}
+
+test_tig show
+
+assert_equals 'combined-diff.screen' <<EOF
+commit 93a4b7273f08a6332aea7d05f9871c1ff747de37
+Refs: [master]
+Merge: 7244f7b 26fac6f
+Author:     Committer <c.ommitter@example.net>
+AuthorDate: Wed Mar 11 12:38:00 2009 +0000
+Commit:     Committer <c.ommitter@example.net>
+CommitDate: Wed Mar 11 12:38:00 2009 +0000
+ 
+    Merge side
+ 
+ b.txt | 2 +-
+ c.txt | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+ 
+diff --cc c.txt
+index ecf2fd9,8d6885b..101743d
+[diff] Changes to 'c.txt' - line 15 of 22                                    72%
+EOF
+
+assert_equals 'first-parent-diff.screen' <<EOF
+commit 93a4b7273f08a6332aea7d05f9871c1ff747de37
+Refs: [master]
+Merge: 7244f7b 26fac6f
+Author:     Committer <c.ommitter@example.net>
+AuthorDate: Wed Mar 11 12:38:00 2009 +0000
+Commit:     Committer <c.ommitter@example.net>
+CommitDate: Wed Mar 11 12:38:00 2009 +0000
+ 
+    Merge side
+---
+ b.txt | 2 +-
+ c.txt | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+ 
+diff --git a/b.txt b/b.txt
+index 6178079..104f6a0 100644
+[diff] Changes to 'b.txt' - line 15 of 28                                    57%
+EOF
+
+assert_equals 'first-parent-diff-other-file.screen' <<EOF
+ 
+diff --git a/b.txt b/b.txt
+index 6178079..104f6a0 100644
+--- a/b.txt
++++ b/b.txt
+@@ -1 +1 @@
+-b
++b side
+diff --git a/c.txt b/c.txt
+index ecf2fd9..101743d 100644
+--- a/c.txt
++++ b/c.txt
+@@ -1 +1 @@
+-c main
++c merged
+ 
+[diff] Changes to 'c.txt' - line 22 of 28                                   100%
+EOF
+
+assert_equals 'refreshed.screen' <<EOF
+ 
+diff --cc c.txt
+index ecf2fd9,8d6885b..101743d
+--- a/c.txt
++++ b/c.txt
+@@@ -1,1 -1,1 +1,1 @@@
+- c main
+ -c side
+++c merged
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+[diff] Changes to 'c.txt' - line 22 of 22                                   100%
+EOF
